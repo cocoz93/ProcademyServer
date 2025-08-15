@@ -1,4 +1,4 @@
-//
+﻿//
 //
 
 #include "TLS_LockFree_FreeList.h"
