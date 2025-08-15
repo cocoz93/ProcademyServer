@@ -1,5 +1,4 @@
 ﻿#pragma once
-#pragma once
 
 
 #ifndef ____LOCKFREE_FREELIST_H____
@@ -19,14 +18,14 @@ class CLockFree_FreeList
 	{
 		T		Data;
 		//SHORT	IsMine;
-		NODE*	pNextNode;
+		NODE* pNextNode;
 	};
 
 	struct TopNODE
 	{
-		NODE*	pNode;
-		LONG64	UniqueCount;
-	};
+		NODE* pNode;
+		INT64 UniqueCount;
+	} alignas(64);
 
 
 public:
@@ -43,10 +42,10 @@ public:
 		this->_IsPlacementNew = IsPlacementNew;
 		hHeap = HeapCreate(NULL, 0, NULL);
 
-		// 저단편화 설정
-		//ULONG HeapInformationValue = 2;
-		//if (HeapSetInformation(hHeap, HeapCompatibilityInformation,
-		//	&HeapInformationValue, sizeof(HeapInformationValue)));
+		// 저단편화 힙(LFH) 설정
+		ULONG HeapInformationValue = 2;
+		if (HeapSetInformation(hHeap, HeapCompatibilityInformation,
+			&HeapInformationValue, sizeof(HeapInformationValue)));
 	}
 
 	virtual ~CLockFree_FreeList()
@@ -57,26 +56,27 @@ public:
 		{
 			pfNode = this->_pTopNode->pNode;
 			this->_pTopNode->pNode = this->_pTopNode->pNode->pNextNode;
-			delete pfNode;
+			pfNode->Data.~T();
+
+			//delete pfNode;
+			HeapFree(hHeap, 0, pfNode);	// HeapFree
 		}
 
 		_aligned_free((void*)this->_pTopNode);
 	}
 
 public:
-	bool Free(volatile T* Data)
+	bool Free(T* Data)
 	{
 		// Free Node
-		volatile NODE* fNode = (NODE*)Data;
+		NODE* fNode = (NODE*)Data;
 
 		// 잘못된 주소가 전달된 경우
 		//if (fNode->IsMine != IDENT_VAL)
 			//return false;
 
-		// 소멸자 호출안됨. 소멸자는 애초에 명시적으로 호출할 수 없다.
-
 		// backup TopNode
-		volatile TopNODE bTopNode;
+		TopNODE bTopNode;
 
 		//_______________________________________________________________________________________
 		// 
@@ -128,35 +128,44 @@ public:
 			);
 
 			if (pNode != bTopNode.pNode)
+			{
+				YieldProcessor();
 				continue;
+			}
 			else
+			{
 				break;
+			}
 		}
 		//_______________________________________________________________________________________
 
-		InterlockedDecrement64((volatile LONG64*)&this->_UseSize);
+		// 소멸자 호출
+		if (_IsPlacementNew)
+			fNode->Data.~T();
+
+		InterlockedDecrement64((volatile INT64*)&this->_UseSize);
 		return true;
 	}
 
 
 	T* Alloc()
 	{
-		volatile LONG64  lUniqueCount;	// New UniqCount
-		volatile UINT64	lUseSize;		// Local UseSize
-		volatile UINT64	lAllocSize = this->_AllocSize;
+		INT64   lUniqueCount;	// New UniqCount
+		INT64	lUseSize;		// Local UseSize
+		INT64	lAllocSize = this->_AllocSize;
 
-		volatile TopNODE bTopNode;		// backup TopNode
+		TopNODE bTopNode;		// backup TopNode
 		NODE* rNode = nullptr;// return Node
 
 
 		// UseSize 증가
-		lUseSize = InterlockedIncrement64((volatile LONG64*)&this->_UseSize);
+		lUseSize = InterlockedIncrement64(&this->_UseSize);
 
 		// Node가 있는 경우 pop
 		if (lAllocSize >= lUseSize)
 		{
 			// UniqueCount증가
-			lUniqueCount = InterlockedIncrement64((volatile LONG64*)&this->_UniqueCount);
+			lUniqueCount = InterlockedIncrement64(&this->_UniqueCount);
 
 			while (true)
 			{
@@ -169,13 +178,14 @@ public:
 
 				if (false == InterlockedCompareExchange128
 				(
-					(volatile LONG64*)this->_pTopNode,
-					(LONG64)lUniqueCount,
-					(LONG64)bTopNode.pNode->pNextNode,
-					(LONG64*)&bTopNode
+					(volatile INT64*)this->_pTopNode,
+					(INT64)lUniqueCount,
+					(INT64)bTopNode.pNode->pNextNode,
+					(INT64*)&bTopNode
 				))
 				{
 					//CAS 실패
+					YieldProcessor();
 					continue;
 				}
 				else
@@ -185,6 +195,13 @@ public:
 					break;
 				}
 			}
+
+			// 생성자 호출
+			if (_IsPlacementNew)
+				new (&rNode->Data) T;
+
+			// 데이터 반환 (노드반환)
+			return (T*)(&(rNode->Data));
 		}
 
 		//return Node
@@ -200,35 +217,29 @@ public:
 			new(&rNode->Data) T;
 			rNode->pNextNode = nullptr;
 
-			InterlockedIncrement64((volatile LONG64*)&this->_AllocSize);
+			InterlockedIncrement64(&this->_AllocSize);
+
+			// 데이터 반환 (노드반환)
+			return (T*)(&(rNode->Data));
 		}
-
-
-		// 생성자 호출
-		//if (_IsPlacementNew)
-		//	new (&rNode->Data) T;
-
-		// 데이터 반환 (노드반환)
-		return (T*)(&(rNode->Data));
 	}
 
 
 public:
-	UINT64 GetUseSize() { return _UseSize; }
-	UINT64 GetAllocSize() { return _AllocSize; }
+	__forceinline INT64 GetUseSize() { return _UseSize; }
+	__forceinline INT64 GetAllocSize() { return _AllocSize; }
 
 	//Debug
-	UINT64 GetUniqueCount() { return _pTopNode->UniqueCount; }
+	__forceinline INT64 GetUniqueCount() { return _pTopNode->UniqueCount; }
 
 private:
-	volatile TopNODE* _pTopNode;			//_allinge_malloc()
+	TopNODE* _pTopNode;		//_allinge_malloc()
 	bool	_IsPlacementNew;
 
-	volatile UINT64	_UseSize;			//실제 바깥에서 사용되고있는 노드(malloc노드)
-	volatile UINT64 _AllocSize;			//바깥으로 Alloc한 노드사이즈	
-	volatile UINT64 _UniqueCount;
+	INT64	_UseSize;		//실제 바깥에서 사용되고있는 노드(malloc노드)
+	INT64 _AllocSize;		//바깥으로 Alloc한 노드사이즈	
+	INT64 _UniqueCount;
 	HANDLE hHeap;
-	
 };
 
 #endif

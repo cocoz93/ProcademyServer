@@ -19,7 +19,7 @@ class CLockFreeQ
 	struct TopNODE
 	{
 		NODE* pNode;
-		LONG64 UniqueCount;
+		INT64 UniqueCount;
 	};
 	//-----------------------------------------------------
 
@@ -90,16 +90,16 @@ public:
 
 	bool Enqueue(T Data)
 	{
-		volatile TopNODE bTopTailNode;						// backup TailTopNode;
-		volatile NODE* pbTailNextNode;						// backupTailNext Node;
-		volatile NODE* pnNode = this->_pFreeList->Alloc();	// NewNode;
+		TopNODE bTopTailNode;						// backup TailTopNode;
+		NODE* pbTailNextNode;						// backupTailNext Node;
+		NODE* pnNode = this->_pFreeList->Alloc();	// NewNode;
 
 		pnNode->Data = Data;
 		pnNode->pNextNode = nullptr;						// Enqueue는 pNext가 nullptr일 경우에만 
 
-		volatile UINT64 lTailUniqueCount = InterlockedIncrement64((LONG64*)&this->_TailUniqueCount);
+		volatile INT64 lTailUniqueCount = InterlockedIncrement64(&this->_TailUniqueCount);
 
-		// 노드가 추가되면 Enqueue성공간주. tail밀기 실패는 상관X
+		// 노드가 추가되면 Enqueue성공 간주. tail밀기 실패는 상관X
 		while (true)
 		{
 			// tail백업
@@ -115,14 +115,14 @@ public:
 			//_______________________________________________________________________________________
 			if (nullptr != pbTailNextNode)
 			{
-				lTailUniqueCount = InterlockedIncrement64((volatile LONG64*)&this->_TailUniqueCount);
+				lTailUniqueCount = InterlockedIncrement64(&this->_TailUniqueCount);
 
 				if (true == InterlockedCompareExchange128
 				(
-					(volatile LONG64*)_ptail,
-					(LONG64)lTailUniqueCount,
-					(LONG64)bTopTailNode.pNode->pNextNode,
-					(LONG64*)&bTopTailNode
+					(volatile INT64*)_ptail,
+					(INT64)lTailUniqueCount,
+					(INT64)bTopTailNode.pNode->pNextNode,
+					(INT64*)&bTopTailNode
 				))
 				{
 					//InterlockedIncrement64((LONG64*)&this->_UseSize);
@@ -148,10 +148,10 @@ public:
 					// tail 밀어준다 (성공여부 판단x)
 					if (true == InterlockedCompareExchange128
 					(
-						(volatile LONG64*)_ptail,
-						(LONG64)lTailUniqueCount,
-						(LONG64)bTopTailNode.pNode->pNextNode,
-						(LONG64*)&bTopTailNode
+						(volatile INT64*)_ptail,
+						(INT64)lTailUniqueCount,
+						(INT64)bTopTailNode.pNode->pNextNode,
+						(INT64*)&bTopTailNode
 					))
 					{
 						//InterlockedIncrement64((LONG64*)&this->_UseSize);
@@ -162,18 +162,18 @@ public:
 			//_______________________________________________________________________________________
 		}
 
-		InterlockedIncrement64((volatile LONG64*)&this->_UseSize);
+		InterlockedIncrement64(&this->_UseSize);
 		return true;
 	}
 
 
 	bool Dequeue(T* pOutData)
 	{
-		volatile UINT64 lUseSize = InterlockedDecrement64((LONG64*)&_UseSize);
+		volatile INT64 lUseSize = InterlockedDecrement64(&_UseSize);
 
 		if (lUseSize < 0)
 		{
-			volatile UINT64 lCurSize = InterlockedIncrement64((LONG64*)&_UseSize);
+			volatile INT64 lCurSize = InterlockedIncrement64(&_UseSize);
 
 			if (lCurSize <= 0)
 			{
@@ -182,13 +182,13 @@ public:
 			}
 		}
 
-		volatile LONG64 lHeadUniqueCount = InterlockedIncrement64((volatile LONG64*)&this->_HeadUniqueCount);
-		volatile LONG64 lTailUniqueCount;
+		volatile INT64 lHeadUniqueCount = InterlockedIncrement64(&this->_HeadUniqueCount);
+		volatile INT64 lTailUniqueCount;
 
 		TopNODE	 bTopHeadNode;
 		TopNODE	 bTopTailNode;
-		volatile NODE* pbTailNextNode;
-		volatile NODE* bHeadNextNode;
+		NODE* pbTailNextNode;
+		NODE* bHeadNextNode;
 
 		while (true)
 		{
@@ -206,14 +206,14 @@ public:
 
 			if (nullptr != pbTailNextNode)
 			{
-				lTailUniqueCount = InterlockedIncrement64((volatile LONG64*)&this->_TailUniqueCount);
+				lTailUniqueCount = InterlockedIncrement64((volatile INT64*)&this->_TailUniqueCount);
 
 				if (true == InterlockedCompareExchange128
 				(
-					(volatile LONG64*)_ptail,
-					(LONG64)lTailUniqueCount,
-					(LONG64)bTopTailNode.pNode->pNextNode,
-					(LONG64*)&bTopTailNode
+					(volatile INT64*)_ptail,
+					(INT64)lTailUniqueCount,
+					(INT64)bTopTailNode.pNode->pNextNode,
+					(INT64*)&bTopTailNode
 				))
 				{
 					//InterlockedIncrement64((LONG64*)&this->_UseSize);
@@ -245,10 +245,10 @@ public:
 
 				if (false == InterlockedCompareExchange128
 				(
-					(LONG64*)this->_phead,
-					(LONG64)lHeadUniqueCount,
-					(LONG64)bTopHeadNode.pNode->pNextNode,
-					(LONG64*)&bTopHeadNode
+					(INT64*)this->_phead,
+					(INT64)lHeadUniqueCount,
+					(INT64)bTopHeadNode.pNode->pNextNode,
+					(INT64*)&bTopHeadNode
 				))
 				{
 					// DCAS 실패
@@ -266,20 +266,18 @@ public:
 		// CAS128()가 Comp쪽으로 뱉어준 원래노드를 해제
 		this->_pFreeList->Free(bTopHeadNode.pNode);
 
-
-
 		return true;
 	}
 
 
 public:
-	UINT64 GetUseSize() { return _UseSize; }
-	UINT64 GetFreeListAllocSize() { return _pFreeList->GetAllocSize(); }
-	UINT64 GetFreeListUseSize() { return _pFreeList->GetUseSize(); }
+	INT64 GetUseSize() { return _UseSize; }
+	INT64 GetFreeListAllocSize() { return _pFreeList->GetAllocSize(); }
+	INT64 GetFreeListUseSize() { return _pFreeList->GetUseSize(); }
 
 	//Debug
-	UINT64 GetUniqueCount() { return _phead->UniqueCount; }
-	UINT64 GetFreeListUniqueCount() { return _pFreeList->GetUniqueCount(); }
+	INT64 GetUniqueCount() { return _phead->UniqueCount; }
+	INT64 GetFreeListUniqueCount() { return _pFreeList->GetUniqueCount(); }
 
 
 
@@ -288,9 +286,9 @@ private:
 	volatile NODE* _pDummy;
 	volatile TopNODE* _phead;
 	volatile TopNODE* _ptail;
-	volatile UINT64	_UseSize;
-	volatile UINT64 _HeadUniqueCount;
-	volatile UINT64 _TailUniqueCount;
+	volatile INT64	_UseSize;
+	volatile INT64 _HeadUniqueCount;
+	volatile INT64 _TailUniqueCount;
 };
 
 
