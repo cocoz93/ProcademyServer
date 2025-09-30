@@ -11,10 +11,10 @@
 #include <conio.h>	// kbhit
 
 #include "Msg.h"
-#include "RingBuff.h"
+#include "RingBuffer.h"
 #include "LockFreeQ.h"
 #include "LockFreeStack.h"
-#include "Monitor.h"
+//#include "Monitor.h"
 
 #include <set> //debug
 
@@ -88,7 +88,7 @@ private:
 		SOCKADDR_IN addr;
 
 		CLockFreeQ<CMsg*> SendQ;
-		CRingBuff RecvQ;
+		CRingBuffer RecvQ;
 	public:
 		CMsg* msg[CMSG_MAX_SENDSIZE];
 		volatile INT SendMsgCount = 0;
@@ -242,7 +242,7 @@ public:
 	// 한번 깨어나서 얼마나처리함
 
 public:
-	CSYSTEM_MONITOR _SystemMonitor;
+	//CSYSTEM_MONITOR _SystemMonitor;
 	volatile UINT64 _StartTime;
 	volatile UINT64 _AcceptCount;
 	MonitorTimeCheck _TimeCheck;

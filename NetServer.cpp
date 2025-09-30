@@ -271,7 +271,7 @@ UINT __stdcall CNetServer::MonitorThread(LPVOID NetServer)
 		wprintf(L"------------------------------------------------------------------------------\n");
 		wprintf(L" [`] : ProfileSave\n");
 		wprintf(L"------------------------------------------------------------------------------\n");
-		pNetServer->_SystemMonitor.Run();
+		//pNetServer->_SystemMonitor.Run();
 		wprintf(L"------------------------------------------------------------------------------\n");
 		wprintf(L"Connect / Accept Total : %lld / %lld\n ", pNetServer->_ConnectClientCount, pNetServer->_AcceptClientCount);
 		wprintf(L"Connect block Count : %lld \n", pNetServer->_Connectblock);
@@ -529,11 +529,11 @@ VOID CNetServer::RecvPost(_SESSION* pSession)
 	WSABUF WSAbuf[2] = { 0, };
 	WSAbuf[0].buf = pSession->RecvQ.GetRearBufferPtr();
 
-	if (pSession->RecvQ.GetDirectEnqueSize() - 1 == pSession->RecvQ.GetFreeSize())
+	if (pSession->RecvQ.GetDirectEnqueueSize() - 1 == pSession->RecvQ.GetFreeSize())
 		WSAbuf[0].len = pSession->RecvQ.GetFreeSize();
 	else
 	{
-		WSAbuf[0].len = pSession->RecvQ.GetDirectEnqueSize();
+		WSAbuf[0].len = pSession->RecvQ.GetDirectEnqueueSize();
 		WSAbuf[1].buf = pSession->RecvQ.GetRingBufferPtr();
 		WSAbuf[1].len = pSession->RecvQ.GetFreeSize() - WSAbuf[0].len;
 	}
@@ -884,7 +884,7 @@ UINT64 CNetServer::RecvComplete(_SESSION* pSession, INT Transferred)
 			InterlockedIncrement64((LONG64*)&_RecvCount);
 
 			NET_HEADER header;
-			int size = pSession->RecvQ.peek((char*)&header, HEADER_SIZE);
+			int size = pSession->RecvQ.Peek((char*)&header, HEADER_SIZE);
 
 			// 헤더체크 (공격아닌지 체크)
 			if (header.Code != MSG_CODE || header.Len <= 0)
@@ -898,7 +898,7 @@ UINT64 CNetServer::RecvComplete(_SESSION* pSession, INT Transferred)
 				break;
 
 			msg->Clear();
-			pSession->RecvQ.Deque(msg->GetMsgBufferPtr(), header.Len + HEADER_SIZE);
+			pSession->RecvQ.Dequeue(msg->GetMsgBufferPtr(), header.Len + HEADER_SIZE);
 			msg->MoveWritePos(header.Len);
 
 
