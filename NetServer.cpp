@@ -342,7 +342,8 @@ VOID CNetServer::AcceptComplete(SOCKET Socket, SOCKADDR_IN sockaddr_in, UINT64 I
 	// IOCount를 올려두어 해제되지 못하게 한다.
 	//____________________________________________________________________________________
 
-	InterlockedIncrement64(&_SessionArray[Index].ReleaseCommit.IOCount);
+	// [FIX] Initialize에서 IOCount=1로 시작하므로 중복 Increment 제거
+	// InterlockedIncrement64(&_SessionArray[Index].ReleaseCommit.IOCount);
 
 	OnClientJoin(_SessionArray[Index].SessionID);
 	RecvPost(&_SessionArray[Index]);
@@ -458,7 +459,10 @@ VOID CNetServer::SendPost(_SESSION* pSession)
 	{
 		++this->_error_code.SendMsgCountZero;
 		InterlockedExchange8(&pSession->SendFlag, FALSE);
-		//리턴되어 지금못보내도 Session.SendQ에 쌓여있으므로 다음에 보내면 됨
+
+		// [FIX] line 405에서 증가시킨 IOCount 회수 — 누수 방지
+		if (0 == InterlockedDecrement64(&pSession->ReleaseCommit.IOCount))
+			ReleaseSession(pSession);
 		return;
 	}
 
@@ -704,11 +708,13 @@ BOOL CNetServer::SendPacket(UINT64 SessionID, CMsg* msg)
 	if (pSession->SendQ.GetUseSize() != 0)
 	{
 		PostQueuedCompletionStatus(this->_IOCP, (DWORD)SEND_REQUEST, (ULONG_PTR)pSession, &pSession->SendOverLapped);
-		//SendPost(pSession);
+	}
+	else
+	{
+		// [FIX] 다른 스레드가 이미 Dequeue하여 보낸 경우, StartUseSession의 IOCount를 회수
+		EndUseSession(pSession);
 	}
 
-
-	//EndUseSession(pSession);
 	return true;
 }
 

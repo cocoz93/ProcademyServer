@@ -46,12 +46,14 @@ private:
 		};
 
 		// 초기화
-		void Initailize(SOCKET Socket, SOCKADDR_IN sockaddr_in, UINT64 Index, UINT SessionIdCount)
+		// [FIX] UINT → UINT64: 32비트 잘림으로 인한 SessionID 충돌(ABA) 방지
+		void Initailize(SOCKET Socket, SOCKADDR_IN sockaddr_in, UINT64 Index, UINT64 SessionIdCount)
 		{
 			//2byte(Index) / 8byte(SessionID)
 			SessionID = (Index << 47);
 			SessionID |= SessionIdCount;
-			ReleaseCommit.IOCount = 0;
+			// [FIX] IOCount=1로 시작: Initialize~AcceptComplete 사이 윈도우에서 StartUseSession이 새 세션을 오해제하는 것을 방지
+			ReleaseCommit.IOCount = 1;
 			ReleaseCommit.ReleaseFlag = 0;
 
 			RecvOverLapped = { 0, };
